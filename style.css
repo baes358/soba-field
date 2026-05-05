@@ -1,0 +1,58 @@
+html, body {
+  margin: 0;
+  padding: 0;
+  height: 100%;
+}
+
+body {
+  background: #f0eee6;
+  cursor: crosshair;
+  overflow: hidden;
+  font-family: 'Berkeley Mono', 'JetBrains Mono', ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+  color: #1a1a1a;
+}
+
+canvas {
+  display: block;
+}
+
+#hud-tl,
+#hud-tr,
+#hud-bl {
+  position: fixed;
+  font-family: inherit;
+  font-size: 11px;
+  line-height: 1.55;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: #1a1a1a;
+  mix-blend-mode: multiply;
+  pointer-events: none;
+  user-select: none;
+  white-space: pre;
+}
+
+#hud-tl {
+  top: 16px;
+  left: 16px;
+}
+
+#hud-tr {
+  top: 16px;
+  right: 16px;
+  text-align: right;
+}
+
+#hud-bl {
+  bottom: 16px;
+  left: 16px;
+  opacity: 0.55;
+}
+
+@media (max-width: 720px) {
+  #hud-tl,
+  #hud-tr,
+  #hud-bl {
+    font-size: 10px;
+  }
+}
