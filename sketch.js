@@ -7,7 +7,7 @@ const BG_COLOR             = '#dbe9d3';  // pale mint green (Royal Danish "TOGET
 const FG_R = 6, FG_G = 6, FG_B = 6;       // near-black text
 
 // --- per-row letter spacing (the core mechanic — drives column convergence) ---
-const LETTER_SPACING_TIGHT = 9;      // px between letters on the densest rows  (SOBASOBASOBA)
+const LETTER_SPACING_TIGHT = 12;     // px between letters on the densest rows  (SOBASOBASOBA) — proportional, so leave room
 const LETTER_SPACING_WIDE  = 110;    // px between letters on the sparsest rows (S    O    B    A)
 const LETTER_SPACING_POWER = 1.45;   // contrast curve — > 1 biases toward tight, < 1 toward wide
 const WORD_GAP_RATIO       = 0.55;   // extra gap after each "SOBA" repeat = letterSpacing * this
@@ -70,6 +70,9 @@ const KO_POOL = [
   '유','우','여','야','이','은','인','안','한','선','영','현','윤','윤','운','원'
 ];
 
+const FONT_EN = 'Switzer';
+const FONT_KO = 'Orbit';
+
 // === STATE ===
 let rowsCount = 0;
 let cellH = 0;
@@ -91,14 +94,30 @@ let modeIndex = 0;
 let mode = MODES[modeIndex];
 let modeAutoTimer = 0;
 
+let currentFont = '';
+
 let hudTL, hudTR, hudBL;
+
+function isKorean(ch) {
+  if (!ch) return false;
+  const code = ch.charCodeAt(0);
+  // Hangul syllables
+  return code >= 0xAC00 && code <= 0xD7A3;
+}
+
+function setFont(name) {
+  if (currentFont !== name) {
+    textFont(name);
+    currentFont = name;
+  }
+}
 
 function setup() {
   pixelDensity(Math.min(2, displayDensity()));
   const c = createCanvas(windowWidth, windowHeight);
   c.style('display', 'block');
 
-  textFont("'Berkeley Mono','JetBrains Mono',ui-monospace,SFMono-Regular,Menlo,Consolas,monospace");
+  setFont(FONT_EN);
   textAlign(CENTER, CENTER);
   noiseSeed(1337);
 
@@ -338,6 +357,7 @@ function draw() {
         if (edge > 0) {
           const alpha = lerp(ALPHA_COLD, ALPHA_HOT, inflE) * edge;
           fill(FG_R, FG_G, FG_B, alpha);
+          setFont(isKorean(ch) ? FONT_KO : FONT_EN);
           text(ch, x, cy);
         }
       }
