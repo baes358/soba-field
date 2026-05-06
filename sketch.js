@@ -3,8 +3,8 @@ const FONT_SIZE_DESKTOP    = 16;     // px, monospace cell font on >= 720px wide
 const FONT_SIZE_MOBILE     = 12;     // px, monospace cell font on < 720px wide
 const CELL_H_RATIO         = 1.40;   // line height = fontSize * this  (airy)
 
-const BG_COLOR             = '#dbe9d3';  // pale mint green (Royal Danish "TOGETHER" palette)
-const FG_R = 6, FG_G = 6, FG_B = 6;       // near-black text
+const BG_COLOR             = '#0066ff';  // pale mint green (Royal Danish "TOGETHER" palette)
+const FG_R = 198, FG_G = 200, FG_B = 209;  // #c6c8d1 — pale cool gray
 
 // --- per-row letter spacing (the core mechanic — drives column convergence) ---
 const LETTER_SPACING_TIGHT = 12;     // px between letters on the densest rows  (SOBASOBASOBA) — proportional, so leave room
@@ -66,8 +66,7 @@ const SOBA = ['S', 'O', 'B', 'A'];
 // Hangul pool — 수 and 연 weighted heavily so 수연 reads through the field.
 const KO_POOL = [
   '수','수','수',
-  '연','연','연',
-  '유','우','여','야','이','은','인','안','한','선','영','현','윤','윤','운','원'
+  '연','연','연'
 ];
 
 const FONT_EN = 'Switzer';
