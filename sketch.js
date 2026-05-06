@@ -1,6 +1,11 @@
 // === TUNING ===
-const FONT_SIZE_DESKTOP    = 16;     // px, monospace cell font on >= 720px wide
-const FONT_SIZE_MOBILE     = 12;     // px, monospace cell font on < 720px wide
+// All pixel-based constants below are stated at FONT_SIZE_BASE (16px). At runtime, fontSize
+// is derived from the viewport and `scale = fontSize / FONT_SIZE_BASE` is applied to every
+// pixel-based constant — see rebuildGeometry().
+const FONT_SIZE_BASE       = 16;     // baseline font size (all px constants assume this)
+const FONT_SIZE_MIN        = 10;     // floor for tiny viewports
+const FONT_SIZE_MAX        = 22;     // ceiling for huge viewports
+const FONT_SIZE_DIVISOR    = 56;     // fontSize = clamp(MIN, MAX, min(width,height) / this)
 const CELL_H_RATIO         = 1.40;   // line height = fontSize * this  (airy)
 
 const BG_COLOR             = '#0066ff';  // pale mint green (Royal Danish "TOGETHER" palette)
@@ -76,7 +81,7 @@ const FONT_KO = 'Orbit';
 let rowsCount = 0;
 let cellH = 0;
 let cellWApprox = 0;        // approximate monospace advance, used only for tight-pulse spacing floor
-let fontSize = FONT_SIZE_DESKTOP;
+let fontSize = FONT_SIZE_BASE;
 
 let mx = 0, my = 0;
 let pmx = 0, pmy = 0;
@@ -94,6 +99,17 @@ let mode = MODES[modeIndex];
 let modeAutoTimer = 0;
 
 let currentFont = '';
+
+// viewport-scaled values (recomputed in rebuildGeometry)
+let scale = 1;
+let s_letterSpacingTight = LETTER_SPACING_TIGHT;
+let s_letterSpacingWide  = LETTER_SPACING_WIDE;
+let s_cursorRadius       = CURSOR_RADIUS;
+let s_cursorRadiusSq     = CURSOR_RADIUS * CURSOR_RADIUS;
+let s_rowDriftPx         = ROW_DRIFT_PX;
+let s_pulseSpeed         = PULSE_SPEED;
+let s_pulseRingWidth     = PULSE_RING_WIDTH;
+let s_trailDepositPx     = TRAIL_DEPOSIT_PX;
 
 let hudTL, hudTR, hudBL;
 
@@ -132,11 +148,24 @@ function setup() {
 }
 
 function rebuildGeometry() {
-  fontSize = width < 720 ? FONT_SIZE_MOBILE : FONT_SIZE_DESKTOP;
+  fontSize = Math.max(FONT_SIZE_MIN, Math.min(FONT_SIZE_MAX,
+    Math.round(Math.min(width, height) / FONT_SIZE_DIVISOR)));
+  scale = fontSize / FONT_SIZE_BASE;
   textSize(fontSize);
   cellH = fontSize * CELL_H_RATIO;
   cellWApprox = fontSize * 0.62;
   rowsCount = Math.ceil(height / cellH) + 2;
+
+  // scale every absolute-pixel constant by `scale`
+  s_letterSpacingTight = LETTER_SPACING_TIGHT * scale;
+  s_letterSpacingWide  = LETTER_SPACING_WIDE  * scale;
+  s_cursorRadius       = CURSOR_RADIUS        * scale;
+  s_cursorRadiusSq     = s_cursorRadius * s_cursorRadius;
+  s_rowDriftPx         = ROW_DRIFT_PX         * scale;
+  s_pulseSpeed         = PULSE_SPEED          * scale;
+  s_pulseRingWidth     = PULSE_RING_WIDTH     * scale;
+  s_trailDepositPx     = TRAIL_DEPOSIT_PX     * scale;
+
   rowStates = new Array(rowsCount);
   for (let i = 0; i < rowsCount; i++) rowStates[i] = [];
 }
@@ -166,7 +195,7 @@ function rowLetterSpacing(rowIdx) {
   // FIELD / CORNERS: just use noise as-is for spacing; CORNERS handles negative space differently.
 
   const t = Math.pow(Math.max(0, Math.min(1, n)), LETTER_SPACING_POWER);
-  return lerp(LETTER_SPACING_TIGHT, LETTER_SPACING_WIDE, t);
+  return lerp(s_letterSpacingTight, s_letterSpacingWide, t);
 }
 
 // CORNERS mode — left/right "windows" that the row's letters are constrained to.
@@ -199,7 +228,7 @@ function updateTrail() {
   }
   const last = trail[trail.length - 1];
   const moved = Math.hypot(mx - last.x, my - last.y);
-  if (moved >= TRAIL_DEPOSIT_PX) {
+  if (moved >= s_trailDepositPx) {
     trail.push({ x: mx, y: my, life: 1.0 });
     if (trail.length > TRAIL_MAX) trail.shift();
   } else {
@@ -236,9 +265,9 @@ function draw() {
     if (t.x > trailMaxX) trailMaxX = t.x;
     if (t.y > trailMaxY) trailMaxY = t.y;
   }
-  trailMinX -= CURSOR_RADIUS; trailMinY -= CURSOR_RADIUS;
-  trailMaxX += CURSOR_RADIUS; trailMaxY += CURSOR_RADIUS;
-  const radSq = CURSOR_RADIUS * CURSOR_RADIUS;
+  trailMinX -= s_cursorRadius; trailMinY -= s_cursorRadius;
+  trailMaxX += s_cursorRadius; trailMaxY += s_cursorRadius;
+  const radSq = s_cursorRadiusSq;
 
   // Mode auto-cycle
   if (MODE_AUTO_ENABLED && !frozen) {
@@ -249,14 +278,14 @@ function draw() {
   // Update pulses
   for (let i = pulses.length - 1; i >= 0; i--) {
     const p = pulses[i];
-    p.r += PULSE_SPEED;
+    p.r += s_pulseSpeed;
     p.life -= 1;
     if (p.life <= 0) pulses.splice(i, 1);
   }
 
   textSize(fontSize);
   noStroke();
-  const ringHalf = PULSE_RING_WIDTH * 0.5;
+  const ringHalf = s_pulseRingWidth * 0.5;
 
   // === walk each row, lay "SOBA" left-to-right with per-row letter spacing ===
   for (let r = 0; r < rowsCount; r++) {
@@ -266,7 +295,7 @@ function draw() {
     const baseSpacing = rowLetterSpacing(r);
     const wordGap = baseSpacing * WORD_GAP_RATIO;
     const driftN = noise(r * NOISE_ROW_SCALE * 2.1 + 100, tNoise * 0.7);
-    const drift = (driftN - 0.5) * ROW_DRIFT_PX;
+    const drift = (driftN - 0.5) * s_rowDriftPx;
 
     // CORNERS: confine the row to a left/right window (or skip it entirely).
     let xStart = drift;
@@ -299,7 +328,7 @@ function draw() {
           const dym = cy - tp.y;
           const d2 = dxm * dxm + dym * dym;
           if (d2 < radSq) {
-            const local = (1 - Math.sqrt(d2) / CURSOR_RADIUS) * tp.life;
+            const local = (1 - Math.sqrt(d2) / s_cursorRadius) * tp.life;
             if (local > inflRaw) inflRaw = local;
           }
         }
