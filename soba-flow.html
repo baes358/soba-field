@@ -14,8 +14,21 @@
     <script defer src="sketch.js"></script>
   </head>
   <body>
-    <div id="hud-tl"></div>
-    <div id="hud-tr"></div>
-    <div id="hud-bl"></div>
+    <div class="panel-stack">
+      <div id="panel" class="panel">
+        <button type="button" class="panel-header" id="panel-toggle" aria-expanded="true">
+          <span class="panel-dot" aria-hidden="true"></span>
+          <span class="panel-filename">soba-field.js</span>
+          <span class="panel-caret" aria-hidden="true"></span>
+        </button>
+        <div class="panel-body" id="panel-body">
+          <pre class="panel-stats" id="panel-stats"></pre>
+        </div>
+      </div>
+      <button type="button" class="cloud-btn" id="cloud-mode" aria-pressed="false">
+        <span class="cloud-label">CLOUD MODE</span>
+        <span class="cloud-switch" aria-hidden="true"></span>
+      </button>
+    </div>
   </body>
 </html>

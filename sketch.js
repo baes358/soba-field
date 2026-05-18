@@ -34,7 +34,7 @@ const CURSOR_SPACING_BOOST = 3.0;    // multiplies letterSpacing locally inside 
 const CURSOR_SILENT_BOOST  = 0.28;   // cursor raises silent threshold by up to this
 
 // --- modes (compositional bias on per-row spacing) ---
-const MODES                = ['FIELD', 'COMPRESS', 'BAND', 'CORNERS'];
+const MODES                = ['FIELD', 'COMPRESS', 'BAND'];
 const MODE_AUTO_ENABLED    = true;
 const MODE_AUTO_FRAMES     = 60 * 18;  // ~18s per mode
 const COMPRESS_BIAS        = 0.55;   // 0 = pure noise; 1 = fully top-wide / bottom-tight gradient
@@ -111,7 +111,21 @@ let s_pulseSpeed         = PULSE_SPEED;
 let s_pulseRingWidth     = PULSE_RING_WIDTH;
 let s_trailDepositPx     = TRAIL_DEPOSIT_PX;
 
-let hudTL, hudTR, hudBL;
+let hudStats, panelEl, cloudToggleEl;
+let cloudMode = false;
+let cloudAmount = 0;         // eased 0→1 mirror of cloudMode (drives the cloud-blob bias)
+const CLOUD_LERP = 0.06;     // per-frame ease toward the target
+
+// Randomized per-toggle so each activation produces a different cloudscape.
+let cloudSeedX = 300, cloudSeedY = 700, cloudSeedBumpX = 700, cloudSeedBumpY = 1100;
+let cloudBandPhase = 0;
+function randomizeCloudSeeds() {
+  cloudSeedX     = Math.random() * 10000;
+  cloudSeedY     = Math.random() * 10000;
+  cloudSeedBumpX = Math.random() * 10000;
+  cloudSeedBumpY = Math.random() * 10000;
+  cloudBandPhase = Math.random() * Math.PI * 2;
+}
 
 function isKorean(ch) {
   if (!ch) return false;
@@ -136,10 +150,22 @@ function setup() {
   textAlign(CENTER, CENTER);
   noiseSeed(1337);
 
-  hudTL = document.getElementById('hud-tl');
-  hudTR = document.getElementById('hud-tr');
-  hudBL = document.getElementById('hud-bl');
-  hudBL.textContent = 'MOVE · DRAG · CLICK PULSE · [SPACE] FREEZE · [M] MODE · [R] RESET';
+  panelEl       = document.getElementById('panel');
+  hudStats      = document.getElementById('panel-stats');
+  cloudToggleEl = document.getElementById('cloud-mode');
+
+  const panelToggle = document.getElementById('panel-toggle');
+  panelToggle.addEventListener('click', () => {
+    const collapsed = panelEl.getAttribute('data-collapsed') === 'true';
+    panelEl.setAttribute('data-collapsed', collapsed ? 'false' : 'true');
+    panelToggle.setAttribute('aria-expanded', collapsed ? 'true' : 'false');
+  });
+
+  cloudToggleEl.addEventListener('click', () => {
+    cloudMode = !cloudMode;
+    cloudToggleEl.setAttribute('aria-pressed', cloudMode ? 'true' : 'false');
+    if (cloudMode) randomizeCloudSeeds();
+  });
 
   mx = pmx = width / 2;
   my = pmy = height / 2;
@@ -253,6 +279,23 @@ function draw() {
 
   if (!frozen) tNoise += TIME_TICK;
 
+  // ease cloud amount toward target so toggling clouds in/out feels animated
+  const cloudTarget = cloudMode ? 1 : 0;
+  cloudAmount += (cloudTarget - cloudAmount) * CLOUD_LERP;
+
+  // Inside cloud bodies we want a tight, solid field so each cloud reads as a full shape.
+  const lowFreqMix      = lerp(NOISE_LOW_FREQ_MIX, 0.55, cloudAmount);
+  const silentBase      = lerp(SILENT_THRESHOLD,   0.02, cloudAmount); // ~no internal voids
+  const noiseScaleXMul  = lerp(1, 0.85, cloudAmount);
+  const noiseScaleYMul  = lerp(1, 0.85, cloudAmount);
+
+  // Cloud field: low-freq base + bumpy detail, scaled wider in X (clouds are stretched horizontally),
+  // and weighted into vertical altitude bands that drift over time.
+  const cloudActive   = cloudAmount > 0.01;
+  const cloudThresh   = lerp(0.0, 0.56, cloudAmount); // higher → more sky between clouds
+  const cloudFeather  = 0.05;                          // crisper edges = more distinct shapes
+  const cloudBandFreq = Math.PI * 5.0 / Math.max(1, height); // ~5 altitude bands
+
   updateTrail();
 
   // Trail bounding box (with cursor-radius padding) for cheap skip.
@@ -269,8 +312,8 @@ function draw() {
   trailMaxX += s_cursorRadius; trailMaxY += s_cursorRadius;
   const radSq = s_cursorRadiusSq;
 
-  // Mode auto-cycle
-  if (MODE_AUTO_ENABLED && !frozen) {
+  // Mode auto-cycle (paused while CLOUD MODE holds the field)
+  if (MODE_AUTO_ENABLED && !frozen && !cloudMode) {
     modeAutoTimer++;
     if (modeAutoTimer >= MODE_AUTO_FRAMES) setMode(modeIndex + 1);
   }
@@ -336,14 +379,36 @@ function draw() {
       const inflE = Math.pow(inflRaw, CURSOR_PULL_POW);
       const cursorMul = 1 + inflE * (CURSOR_SPACING_BOOST - 1);
 
-      // ambient density (two-octave) — creates organic voids
-      const localNHi = noise(x * NOISE_LOCAL_SCALE_X, cy * NOISE_LOCAL_SCALE_Y, tNoise);
-      const localNLo = noise(x * NOISE_LOCAL_SCALE_X * 0.35 + 50,
-                             cy * NOISE_LOCAL_SCALE_Y * 0.35 + 50,
+      // ambient density (two-octave) — creates organic voids; cloud mode tightens the interior
+      const sx = NOISE_LOCAL_SCALE_X * noiseScaleXMul;
+      const sy = NOISE_LOCAL_SCALE_Y * noiseScaleYMul;
+      const localNHi = noise(x * sx, cy * sy, tNoise);
+      const localNLo = noise(x * sx * 0.35 + 50,
+                             cy * sy * 0.35 + 50,
                              tNoise * 0.6);
-      const localN = localNHi * (1 - NOISE_LOW_FREQ_MIX) + localNLo * NOISE_LOW_FREQ_MIX;
-      const silentThresh = SILENT_THRESHOLD + inflE * CURSOR_SILENT_BOOST;
-      const silent = localN < silentThresh;
+      const localN = localNHi * (1 - lowFreqMix) + localNLo * lowFreqMix;
+      const silentThresh = silentBase + inflE * CURSOR_SILENT_BOOST;
+      let silent = localN < silentThresh;
+
+      // CLOUD MODE: carve round, puffy cloud shapes using isotropic noise.
+      let cloudEdge = 1;
+      if (cloudActive) {
+        // Base puff — equal X/Y scale so the threshold contours come out roughly circular.
+        // Seeds are re-randomized each time cloud mode is toggled on.
+        const cBase  = noise(x * 0.0045 + cloudSeedX,     cy * 0.0045 + cloudSeedY,     tNoise * 0.25);
+        const cBumps = noise(x * 0.0110 + cloudSeedBumpX, cy * 0.0110 + cloudSeedBumpY, tNoise * 0.40);
+        // Very gentle altitude bias so clouds aren't all stacked at one elevation
+        const band   = 0.85 + 0.15 * Math.sin(cy * cloudBandFreq + cloudBandPhase + tNoise * 0.7);
+        const cloudDensity = (cBase * 0.78 + cBumps * 0.22) * band;
+
+        // Feathered threshold: solid inside the cloud, fading to transparent at the edge,
+        // and fully silent outside.
+        if (cloudDensity < cloudThresh - cloudFeather) {
+          silent = true;
+        } else if (cloudDensity < cloudThresh) {
+          cloudEdge = (cloudDensity - (cloudThresh - cloudFeather)) / cloudFeather;
+        }
+      }
 
       // pulse carve
       let carved = false;
@@ -383,7 +448,7 @@ function draw() {
           ? Math.min(1, Math.min(x, width - x, cy, height - cy) / EDGE_FADE_PX)
           : 1;
         if (edge > 0) {
-          const alpha = lerp(ALPHA_COLD, ALPHA_HOT, inflE) * edge;
+          const alpha = lerp(ALPHA_COLD, ALPHA_HOT, inflE) * edge * cloudEdge;
           fill(FG_R, FG_G, FG_B, alpha);
           setFont(isKorean(ch) ? FONT_KO : FONT_EN);
           text(ch, x, cy);
@@ -407,18 +472,19 @@ function draw() {
 function updateHUD() {
   const mixPct = Math.round(KO_HOT_PROB * 100);
   const modeLine = mode + (frozen ? ' · FROZEN' : '');
-  hudTL.textContent =
-    'FIELD  SOBA × 수연\n' +
-    'MODE   ' + modeLine + '\n' +
-    'MIX    ' + mixPct + '% KO @ HOT';
-
-  const cycleLeft = MODE_AUTO_ENABLED && !frozen
+  const cycleActive = MODE_AUTO_ENABLED && !frozen && !cloudMode;
+  const cycleLeft = cycleActive
     ? Math.max(0, ((MODE_AUTO_FRAMES - modeAutoTimer) / 60) | 0)
     : 0;
-  hudTR.textContent =
+  const nextStr = cloudMode ? '--' : pad2(cycleLeft);
+
+  hudStats.textContent =
+    'FIELD  SOBA × 수연\n' +
+    'MODE   ' + modeLine + '\n' +
+    'MIX    ' + mixPct + '% KO @ HOT\n' +
     'X ' + pad4(Math.round(mx)) + '  Y ' + pad4(Math.round(my)) + '\n' +
     'TURB ' + mouseSpeed.toFixed(1) + '  WAKE ' + trail.length + '\n' +
-    'NEXT ' + pad2(cycleLeft) + 'S';
+    'NEXT ' + nextStr + 'S';
 }
 
 function pad4(n) {
